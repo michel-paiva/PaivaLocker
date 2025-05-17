@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -50,6 +51,7 @@ class MainActivity : ComponentActivity() {
                 var isSelectionMode by remember { mutableStateOf(false) }
                 var selectedApps by remember { mutableStateOf(setOf<String>()) }
                 val scope = rememberCoroutineScope()
+                val lockedApps by appPreferences.lockedApps.collectAsStateWithLifecycle(initialValue = emptySet())
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
@@ -61,12 +63,6 @@ class MainActivity : ComponentActivity() {
                                 titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                             ),
                             actions = {
-                                TextButton(
-                                    onClick = { isSelectionMode = !isSelectionMode }
-                                ) {
-                                    Text(if (isSelectionMode) "Done" else "Modify")
-                                }
-                                
                                 if (isSelectionMode) {
                                     IconButton(
                                         onClick = {
@@ -77,6 +73,15 @@ class MainActivity : ComponentActivity() {
                                         }
                                     ) {
                                         Icon(Icons.Default.Check, contentDescription = "Save")
+                                    }
+                                } else {
+                                    TextButton(
+                                        onClick = { 
+                                            selectedApps = lockedApps
+                                            isSelectionMode = true 
+                                        }
+                                    ) {
+                                        Text("Modify")
                                     }
                                 }
                             }
@@ -112,6 +117,7 @@ fun AppList(
     val packageManager = context.packageManager
     val appPreferences = remember { AppPreferences(context) }
     val lockedApps by appPreferences.lockedApps.collectAsStateWithLifecycle(initialValue = emptySet())
+    var searchQuery by remember { mutableStateOf("") }
     
     val apps = remember {
         packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
@@ -129,18 +135,45 @@ fun AppList(
             )
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp)
-    ) {
-        items(apps) { app ->
-            AppItem(
-                app = app,
-                isSelectionMode = isSelectionMode,
-                isSelected = app.packageName in selectedApps,
-                isLocked = app.packageName in lockedApps,
-                onAppSelected = onAppSelected
+    val filteredApps = remember(searchQuery, apps) {
+        if (searchQuery.isEmpty()) {
+            apps
+        } else {
+            apps.filter { app ->
+                app.name.contains(searchQuery, ignoreCase = true) ||
+                app.packageName.contains(searchQuery, ignoreCase = true)
+            }
+        }
+    }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            placeholder = { Text("Search apps...") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface
             )
+        )
+
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            items(filteredApps) { app ->
+                AppItem(
+                    app = app,
+                    isSelectionMode = isSelectionMode,
+                    isSelected = app.packageName in selectedApps,
+                    isLocked = app.packageName in lockedApps,
+                    onAppSelected = onAppSelected
+                )
+            }
         }
     }
 }
