@@ -347,5 +347,9 @@ class AppMonitorService : Service() {
             }
         }
         serviceScope.cancel()
+        
+        // Send broadcast to restart service
+        val broadcastIntent = Intent("com.example.paivalocker.RESTART_SERVICE")
+        sendBroadcast(broadcastIntent)
     }
 }
