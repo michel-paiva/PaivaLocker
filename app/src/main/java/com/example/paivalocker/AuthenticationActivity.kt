@@ -8,13 +8,20 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import com.example.paivalocker.service.OverlayService
+import com.example.paivalocker.data.AppPreferences
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class AuthenticationActivity : AppCompatActivity() {
     private var targetPackage: String? = null
+    private lateinit var appPreferences: AppPreferences
+    private val scope = CoroutineScope(Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         targetPackage = intent.getStringExtra("package_name")
+        appPreferences = AppPreferences(applicationContext)
         
         if (targetPackage == null) {
             Toast.makeText(this, "Invalid app", Toast.LENGTH_SHORT).show()
@@ -60,6 +67,13 @@ class AuthenticationActivity : AppCompatActivity() {
             executor,
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    // Update last authentication time for this app
+                    scope.launch {
+                        targetPackage?.let { packageName ->
+                            appPreferences.updateAppAuthTime(packageName)
+                        }
+                    }
+                    
                     // Authentication successful, launch the target app
                     targetPackage?.let { packageName ->
                         try {

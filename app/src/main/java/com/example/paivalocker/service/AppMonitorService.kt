@@ -21,6 +21,7 @@ import com.example.paivalocker.AuthenticationActivity
 import com.example.paivalocker.MainActivity
 import com.example.paivalocker.R
 import com.example.paivalocker.data.AppPreferences
+import com.example.paivalocker.receiver.ScreenLockReceiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,6 +47,7 @@ class AppMonitorService : Service() {
     private var lastCheckedPackage: String? = null
     private var lastCheckTime = 0L
     private val MIN_CHECK_INTERVAL = 1000L // Minimum time between checks
+    private var screenLockReceiver: ScreenLockReceiver? = null
 
     companion object {
         private const val KEY_LAUNCH_OVERLAY = "android.intent.extra.LAUNCH_OVERLAY"
@@ -58,6 +60,7 @@ class AppMonitorService : Service() {
         usageStatsManager = getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
         createNotificationChannel()
         startForeground(MONITORING_NOTIFICATION_ID, createMonitoringNotification())
+        screenLockReceiver = ScreenLockReceiver.register(this)
         startMonitoring()
     }
 
@@ -222,10 +225,19 @@ class AppMonitorService : Service() {
         serviceScope.launch {
             try {
                 if (isAppLocked(packageName)) {
-                    Log.d(TAG, "App is locked: $packageName")
-                    currentLockedPackage = packageName
-                    withContext(Dispatchers.Main) {
-                        handleLockedApp(packageName)
+                    val authTimes = appPreferences.appAuthTimes.first()
+                    val lastAuthTime = authTimes[packageName] ?: 0L
+                    val currentTime = System.currentTimeMillis()
+                    val timeSinceLastAuth = currentTime - lastAuthTime
+                    
+                    if (timeSinceLastAuth > 60000) { // 60 seconds
+                        Log.d(TAG, "App is locked: $packageName")
+                        currentLockedPackage = packageName
+                        withContext(Dispatchers.Main) {
+                            handleLockedApp(packageName)
+                        }
+                    } else {
+                        Log.d(TAG, "Skipping auth - recently authenticated for $packageName")
                     }
                 }
             } catch (e: Exception) {
@@ -280,6 +292,13 @@ class AppMonitorService : Service() {
         super.onDestroy()
         Log.d(TAG, "Service destroyed")
         stopMonitoring()
+        screenLockReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error unregistering screen lock receiver", e)
+            }
+        }
         serviceScope.cancel()
     }
 }
