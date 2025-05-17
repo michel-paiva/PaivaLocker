@@ -26,12 +26,16 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.paivalocker.data.AppPreferences
 import com.example.paivalocker.service.AppMonitorService
+import com.example.paivalocker.service.OverlayService
 import com.example.paivalocker.ui.theme.PaivaLockerTheme
 import kotlinx.coroutines.launch
 import android.app.AppOpsManager
 import android.content.Context
 import android.os.Process
 import android.provider.Settings
+import android.net.Uri
+import android.widget.Toast
+import android.os.Build
 
 data class AppInfo(
     val name: String,
@@ -77,6 +81,15 @@ class MainActivity : ComponentActivity() {
         
         // Request usage stats permission and start service
         requestUsageStatsPermission()
+        
+        // Request overlay permission if not granted
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivityForResult(intent, OVERLAY_PERMISSION_REQ_CODE)
+        }
         
         enableEdgeToEdge()
         setContent {
@@ -136,6 +149,25 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == OVERLAY_PERMISSION_REQ_CODE) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (Settings.canDrawOverlays(this)) {
+                    // Permission granted, start the service
+                    startService(Intent(this, OverlayService::class.java))
+                } else {
+                    // Permission denied
+                    Toast.makeText(this, "Overlay permission is required", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    companion object {
+        private const val OVERLAY_PERMISSION_REQ_CODE = 1234
     }
 }
 

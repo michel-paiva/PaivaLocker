@@ -2,49 +2,54 @@ package com.example.paivalocker
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.fragment.app.FragmentActivity
-import com.example.paivalocker.ui.theme.PaivaLockerTheme
+import com.example.paivalocker.service.OverlayService
 
-class AuthenticationActivity : FragmentActivity() {
+class AuthenticationActivity : AppCompatActivity() {
     private var targetPackage: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         targetPackage = intent.getStringExtra("package_name")
         
-        setContent {
-            PaivaLockerTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    AuthenticationScreen()
-                }
-            }
+        if (targetPackage == null) {
+            Toast.makeText(this, "Invalid app", Toast.LENGTH_SHORT).show()
+            finish()
+            return
         }
 
-        showBiometricPrompt()
+        checkBiometricAvailability()
     }
 
-    @Composable
-    private fun AuthenticationScreen() {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            CircularProgressIndicator()
+    private fun checkBiometricAvailability() {
+        val biometricManager = BiometricManager.from(this)
+        when (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)) {
+            BiometricManager.BIOMETRIC_SUCCESS -> {
+                showBiometricPrompt()
+            }
+            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> {
+                Toast.makeText(this, "No biometric hardware available", Toast.LENGTH_LONG).show()
+                finish()
+            }
+            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> {
+                Toast.makeText(this, "Biometric hardware unavailable", Toast.LENGTH_LONG).show()
+                finish()
+            }
+            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
+                Toast.makeText(this, "No biometrics enrolled. Please set up fingerprint or face authentication in your device settings.", Toast.LENGTH_LONG).show()
+                // Open security settings
+                val intent = Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS)
+                startActivity(intent)
+                finish()
+            }
+            else -> {
+                Toast.makeText(this, "Biometric authentication not available", Toast.LENGTH_LONG).show()
+                finish()
+            }
         }
     }
 
@@ -57,31 +62,35 @@ class AuthenticationActivity : FragmentActivity() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     // Authentication successful, launch the target app
                     targetPackage?.let { packageName ->
-                        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-                        if (launchIntent != null) {
-                            startActivity(launchIntent)
+                        try {
+                            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+                            if (launchIntent != null) {
+                                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                startActivity(launchIntent)
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(this@AuthenticationActivity, "Failed to launch app", Toast.LENGTH_SHORT).show()
                         }
                     }
+                    // Hide the overlay
+                    val overlayIntent = Intent(this@AuthenticationActivity, OverlayService::class.java)
+                    stopService(overlayIntent)
                     finish()
                 }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    // Authentication failed, go to home screen
-                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                        addCategory(Intent.CATEGORY_HOME)
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    startActivity(homeIntent)
+                    Toast.makeText(this@AuthenticationActivity, "Authentication failed: $errString", Toast.LENGTH_SHORT).show()
+                    // Hide the overlay
+                    val overlayIntent = Intent(this@AuthenticationActivity, OverlayService::class.java)
+                    stopService(overlayIntent)
                     finish()
                 }
 
                 override fun onAuthenticationFailed() {
-                    // Authentication failed, go to home screen
-                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                        addCategory(Intent.CATEGORY_HOME)
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    startActivity(homeIntent)
+                    Toast.makeText(this@AuthenticationActivity, "Authentication failed", Toast.LENGTH_SHORT).show()
+                    // Hide the overlay
+                    val overlayIntent = Intent(this@AuthenticationActivity, OverlayService::class.java)
+                    stopService(overlayIntent)
                     finish()
                 }
             }

@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="true"
@@ -34,10 +35,16 @@
         <activity
             android:name=".AuthenticationActivity"
             android:exported="false"
-            android:theme="@style/Theme.PaivaLocker"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar"
             android:excludeFromRecents="true"
             android:taskAffinity=""
             android:launchMode="singleTask" />
+
+        <service
+            android:name=".service.OverlayService"
+            android:enabled="true"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
 
         <service
             android:name=".service.AppMonitorService"
