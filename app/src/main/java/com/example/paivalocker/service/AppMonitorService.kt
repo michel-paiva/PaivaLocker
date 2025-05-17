@@ -22,6 +22,7 @@ import com.example.paivalocker.MainActivity
 import com.example.paivalocker.R
 import com.example.paivalocker.data.AppPreferences
 import com.example.paivalocker.receiver.ScreenLockReceiver
+import com.example.paivalocker.receiver.ServiceRestartReceiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -349,7 +350,9 @@ class AppMonitorService : Service() {
         serviceScope.cancel()
         
         // Send broadcast to restart service
-        val broadcastIntent = Intent("com.example.paivalocker.RESTART_SERVICE")
+        val broadcastIntent = Intent(this, ServiceRestartReceiver::class.java).apply {
+            action = "com.example.paivalocker.RESTART_SERVICE"
+        }
         sendBroadcast(broadcastIntent)
     }
 }
