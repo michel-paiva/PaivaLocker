@@ -30,6 +30,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
 import android.app.ActivityOptions
+import android.app.ActivityManager
+import android.content.Context
 
 class AppMonitorService : Service() {
     private lateinit var appPreferences: AppPreferences
@@ -48,6 +50,7 @@ class AppMonitorService : Service() {
     private var lastCheckTime = 0L
     private val MIN_CHECK_INTERVAL = 1000L // Minimum time between checks
     private var screenLockReceiver: ScreenLockReceiver? = null
+    private var authenticatingPackage: String? = null // Track which app is being authenticated
 
     companion object {
         private const val KEY_LAUNCH_OVERLAY = "android.intent.extra.LAUNCH_OVERLAY"
@@ -66,17 +69,24 @@ class AppMonitorService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "App Monitor Service",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Monitors app launches for PaivaLocker"
-                setShowBadge(true)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            try {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    "App Monitor Service",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Monitors app launches for PaivaLocker"
+                    setShowBadge(true)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    enableLights(true)
+                    enableVibration(true)
+                }
+                val notificationManager = getSystemService(NotificationManager::class.java)
+                notificationManager.createNotificationChannel(channel)
+                Log.d(TAG, "Notification channel created successfully")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create notification channel", e)
             }
-            val notificationManager = getSystemService(NotificationManager::class.java)
-            notificationManager.createNotificationChannel(channel)
         }
     }
 
@@ -98,36 +108,42 @@ class AppMonitorService : Service() {
     }
 
     private fun showAuthenticationNotification(packageName: String) {
-        val appName = getAppName(packageName)
+        try {
+            val appName = getAppName(packageName)
+            Log.d(TAG, "Showing authentication notification for $appName ($packageName)")
+            
+            // Create full screen intent for immediate attention
+            val fullScreenIntent = Intent(this, AuthenticationActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                putExtra("package_name", packageName)
+            }
+            
+            val fullScreenPendingIntent = PendingIntent.getActivity(
+                this,
+                packageName.hashCode(),
+                fullScreenIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
         
-        // Create full screen intent for immediate attention
-        val fullScreenIntent = Intent(this, AuthenticationActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            putExtra("package_name", packageName)
+            // Build the notification
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Authentication Required")
+                .setContentText("Verify identity to open $appName")
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setFullScreenIntent(fullScreenPendingIntent, true)
+                .setAutoCancel(true)
+                .setTimeoutAfter(30000) // Auto-cancel after 30 seconds
+                .build()
+        
+            // Show as a new notification
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager.notify(AUTH_NOTIFICATION_ID, notification)
+            Log.d(TAG, "Authentication notification shown successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show authentication notification", e)
         }
-        
-        val fullScreenPendingIntent = PendingIntent.getActivity(
-            this,
-            packageName.hashCode(),
-            fullScreenIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-    
-        // Build the notification
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Authentication Required")
-            .setContentText("Verify identity to open $appName")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setFullScreenIntent(fullScreenPendingIntent, true)
-            .setAutoCancel(true)
-            .setTimeoutAfter(30000) // Auto-cancel after 30 seconds
-            .build()
-    
-        // Show as a new notification
-        val notificationManager = getSystemService(NotificationManager::class.java)
-        notificationManager.notify(AUTH_NOTIFICATION_ID, notification)
     }
 
     private fun getAppName(packageName: String): String {
@@ -183,8 +199,8 @@ class AppMonitorService : Service() {
             foundEvent = true
             if (event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
                 val packageName = event.packageName
-                // Only check if it's a different package than last time
-                if (packageName != this.packageName && packageName != lastCheckedPackage) {
+                // Skip if we're already authenticating this app
+                if (packageName != authenticatingPackage && packageName != lastCheckedPackage) {
                     Log.d(TAG, "App moved to foreground: $packageName")
                     lastCheckedPackage = packageName
                     checkAndLockApp(packageName)
@@ -195,7 +211,7 @@ class AppMonitorService : Service() {
         if (!foundEvent) {
             // If no events were found, check current foreground app
             val currentApp = getCurrentForegroundApp()
-            if (currentApp != null && currentApp != this.packageName && currentApp != lastCheckedPackage) {
+            if (currentApp != null && currentApp != authenticatingPackage && currentApp != lastCheckedPackage) {
                 Log.d(TAG, "Current foreground app: $currentApp")
                 lastCheckedPackage = currentApp
                 checkAndLockApp(currentApp)
@@ -255,7 +271,33 @@ class AppMonitorService : Service() {
         try {
             Log.d(TAG, "Handling locked app: $packageName")
             
-            // Show authentication notification first
+            // Special handling for PaivaLocker itself
+            if (packageName == this.packageName) {
+                Log.d(TAG, "Handling PaivaLocker authentication")
+                
+                // Check if we're in the main activity
+                val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                val tasks = am.getRunningTasks(1)
+                val currentActivity = tasks[0].topActivity
+                
+                if (currentActivity?.className == "com.example.paivalocker.MainActivity") {
+                    Log.d(TAG, "In main activity, showing biometrics")
+                    // Start authentication activity directly for PaivaLocker
+                    val authIntent = Intent(this, AuthenticationActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        putExtra("package_name", packageName)
+                    }
+                    startActivity(authIntent)
+                } else {
+                    Log.d(TAG, "Not in main activity, skipping biometrics")
+                }
+                return
+            }
+            
+            // For other apps, proceed with normal handling
+            authenticatingPackage = packageName
+            
+            // Show authentication notification
             showAuthenticationNotification(packageName)
             
             // Start the overlay service
@@ -275,9 +317,14 @@ class AppMonitorService : Service() {
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to minimize app", e)
                 }
+                // Clear the authenticating package after a delay
+                handler.postDelayed({
+                    authenticatingPackage = null
+                }, 2000)
             }, 300)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to handle locked app", e)
+            authenticatingPackage = null
         }
     }
 
