@@ -8,16 +8,13 @@ import android.app.Service
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import com.example.paivalocker.AuthenticationActivity
 import com.example.paivalocker.MainActivity
 import com.example.paivalocker.R
@@ -28,7 +25,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.cancel
 
 class AppMonitorService : Service() {
     private lateinit var appPreferences: AppPreferences
@@ -40,7 +36,6 @@ class AppMonitorService : Service() {
     private var isMonitoring = false
     private val NOTIFICATION_ID = 1
     private val CHANNEL_ID = "AppMonitorChannel"
-    private lateinit var appLaunchReceiver: AppLaunchReceiver
     private var currentLockedPackage: String? = null
 
     override fun onCreate() {
@@ -49,16 +44,8 @@ class AppMonitorService : Service() {
         appPreferences = AppPreferences(applicationContext)
         usageStatsManager = getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification())
+        startForeground(NOTIFICATION_ID, createMonitoringNotification())
         startMonitoring()
-        
-        // Create and register the receiver
-        appLaunchReceiver = AppLaunchReceiver()
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_MAIN)
-            addCategory(Intent.CATEGORY_LAUNCHER)
-        }
-        registerReceiver(appLaunchReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
     }
 
     private fun createNotificationChannel() {
@@ -66,18 +53,16 @@ class AppMonitorService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "App Monitor Service",
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Monitors app launches for PaivaLocker"
-                enableVibration(true)
-                enableLights(true)
             }
             val notificationManager = getSystemService(NotificationManager::class.java)
             notificationManager.createNotificationChannel(channel)
         }
     }
 
-    private fun createNotification(): Notification {
+    private fun createMonitoringNotification(): Notification {
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
@@ -91,13 +76,14 @@ class AppMonitorService : Service() {
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 
     private fun showAuthenticationNotification(packageName: String) {
+        val appName = getAppName(packageName)
+        
         val authIntent = Intent(this, AuthenticationActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra("package_name", packageName)
         }
         
@@ -110,17 +96,25 @@ class AppMonitorService : Service() {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Authentication Required")
-            .setContentText("Tap to authenticate for $packageName")
+            .setContentText("Verify identity to open $appName")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(authPendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
 
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.notify(packageName.hashCode(), notification)
+    }
+
+    private fun getAppName(packageName: String): String {
+        return try {
+            val pm = packageManager
+            val appInfo = pm.getApplicationInfo(packageName, 0)
+            pm.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+            packageName
+        }
     }
 
     private fun startMonitoring() {
@@ -130,7 +124,7 @@ class AppMonitorService : Service() {
             override fun run() {
                 checkAppUsage()
                 if (isMonitoring) {
-                    handler.postDelayed(this, 1000) // Check every second
+                    handler.postDelayed(this, 2000) // Check every 2 seconds
                 }
             }
         })
@@ -150,8 +144,10 @@ class AppMonitorService : Service() {
             usageEvents.getNextEvent(event)
             if (event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
                 val packageName = event.packageName
-                Log.d(TAG, "App moved to foreground: $packageName")
-                checkAndLockApp(packageName)
+                if (packageName != this.packageName) { // Don't lock ourselves
+                    Log.d(TAG, "App moved to foreground: $packageName")
+                    checkAndLockApp(packageName)
+                }
             }
         }
         lastEventTime = currentTime
@@ -160,21 +156,33 @@ class AppMonitorService : Service() {
     private fun checkAndLockApp(packageName: String) {
         serviceScope.launch {
             try {
-                val lockedApps = withContext(Dispatchers.IO) {
-                    appPreferences.lockedApps.first()
-                }
-                Log.d(TAG, "Locked apps: $lockedApps")
-                if (packageName in lockedApps) {
+                if (isAppLocked(packageName)) {
                     Log.d(TAG, "App is locked: $packageName")
                     currentLockedPackage = packageName
-                    showAuthenticationNotification(packageName)
-                } else {
-                    Log.d(TAG, "App is not locked: $packageName")
+                    withContext(Dispatchers.Main) {
+                        handleLockedApp(packageName)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error checking locked apps", e)
             }
         }
+    }
+
+    private suspend fun isAppLocked(packageName: String): Boolean {
+        val lockedApps = appPreferences.lockedApps.first()
+        return packageName in lockedApps
+    }
+
+    private fun handleLockedApp(packageName: String) {
+        // Minimize the locked app
+        val homeIntent = Intent(Intent.ACTION_MAIN)
+        homeIntent.addCategory(Intent.CATEGORY_HOME)
+        homeIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        startActivity(homeIntent)
+        
+        // Show authentication notification
+        showAuthenticationNotification(packageName)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -187,12 +195,7 @@ class AppMonitorService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "Service destroyed")
-        try {
-            unregisterReceiver(appLaunchReceiver)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error unregistering receiver", e)
-        }
         stopMonitoring()
         serviceScope.cancel()
     }
-} 
+}
