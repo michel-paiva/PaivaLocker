@@ -186,6 +186,7 @@ fun AppList(
     val appPreferences = remember { AppPreferences(context) }
     val lockedApps by appPreferences.lockedApps.collectAsStateWithLifecycle(initialValue = emptySet())
     var searchQuery by remember { mutableStateOf("") }
+    var showOnlyLocked by remember { mutableStateOf(false) }
     
     val apps = remember {
         packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
@@ -203,37 +204,66 @@ fun AppList(
             )
     }
 
-    val filteredApps = remember(searchQuery, apps) {
-        if (searchQuery.isEmpty()) {
-            apps
-        } else {
-            apps.filter { app ->
+    val filteredApps = remember(searchQuery, apps, showOnlyLocked, lockedApps) {
+        apps.filter { app ->
+            val matchesSearch = searchQuery.isEmpty() ||
                 app.name.contains(searchQuery, ignoreCase = true) ||
                 app.packageName.contains(searchQuery, ignoreCase = true)
-            }
+            
+            val matchesLockedFilter = !showOnlyLocked || app.packageName in lockedApps
+            
+            matchesSearch && matchesLockedFilter
         }
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            placeholder = { Text("Search apps...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                cursorColor = MaterialTheme.colorScheme.primary
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .weight(1f),
+                placeholder = { Text("Search apps...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    cursorColor = MaterialTheme.colorScheme.primary
+                )
             )
-        )
+            
+            Spacer(modifier = Modifier.width(8.dp))
+            
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 8.dp)
+            ) {
+                Checkbox(
+                    checked = showOnlyLocked,
+                    onCheckedChange = { showOnlyLocked = it },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = MaterialTheme.colorScheme.primary,
+                        uncheckedColor = MaterialTheme.colorScheme.outline,
+                        checkmarkColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                )
+                Text(
+                    text = "Locked",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
 
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
