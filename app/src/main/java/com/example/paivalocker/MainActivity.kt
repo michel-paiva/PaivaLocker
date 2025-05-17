@@ -8,6 +8,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,6 +28,10 @@ import com.example.paivalocker.data.AppPreferences
 import com.example.paivalocker.service.AppMonitorService
 import com.example.paivalocker.ui.theme.PaivaLockerTheme
 import kotlinx.coroutines.launch
+import android.app.AppOpsManager
+import android.content.Context
+import android.os.Process
+import android.provider.Settings
 
 data class AppInfo(
     val name: String,
@@ -38,12 +43,40 @@ data class AppInfo(
 class MainActivity : ComponentActivity() {
     private lateinit var appPreferences: AppPreferences
 
+    private val requestUsageStatsPermission = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // Check if permission was granted
+        if (hasUsageStatsPermission()) {
+            startService(Intent(this, AppMonitorService::class.java))
+        }
+    }
+
+    private fun hasUsageStatsPermission(): Boolean {
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        val mode = appOps.checkOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            Process.myUid(),
+            packageName
+        )
+        return mode == AppOpsManager.MODE_ALLOWED
+    }
+
+    private fun requestUsageStatsPermission() {
+        if (!hasUsageStatsPermission()) {
+            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+            requestUsageStatsPermission.launch(intent)
+        } else {
+            startService(Intent(this, AppMonitorService::class.java))
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         appPreferences = AppPreferences(this)
         
-        // Start the monitoring service
-        startService(Intent(this, AppMonitorService::class.java))
+        // Request usage stats permission and start service
+        requestUsageStatsPermission()
         
         enableEdgeToEdge()
         setContent {
