@@ -54,6 +54,7 @@ class OverlayService : Service() {
     private fun setupDot() {
         try {
             dotView = LayoutInflater.from(this).inflate(R.layout.overlay_dot, null)
+            dotView?.alpha = 0f // Make the dot completely invisible
             dotParams = LayoutParams(
                 LayoutParams.WRAP_CONTENT,
                 LayoutParams.WRAP_CONTENT,

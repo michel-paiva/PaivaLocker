@@ -45,10 +45,10 @@ class AppMonitorService : Service() {
     private val AUTH_NOTIFICATION_ID = 2
     private val CHANNEL_ID = "AppMonitorChannel"
     private var currentLockedPackage: String? = null
-    private val MONITORING_INTERVAL = 2000L // Check every 2 seconds instead of 1
+    private val MONITORING_INTERVAL = 450L // Check every 2 seconds instead of 1
     private var lastCheckedPackage: String? = null
     private var lastCheckTime = 0L
-    private val MIN_CHECK_INTERVAL = 1000L // Minimum time between checks
+    private val MIN_CHECK_INTERVAL = 300L // Minimum time between checks
     private var screenLockReceiver: ScreenLockReceiver? = null
     private var authenticatingPackage: String? = null // Track which app is being authenticated
 

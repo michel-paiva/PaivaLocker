@@ -101,12 +101,15 @@ class MainActivity : ComponentActivity() {
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
+                    containerColor = MaterialTheme.colorScheme.background,
                     topBar = {
                         CenterAlignedTopAppBar(
                             title = { Text("PaivaLocker") },
                             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                                navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                                actionIconContentColor = MaterialTheme.colorScheme.onSurface
                             ),
                             actions = {
                                 if (isSelectionMode) {
@@ -223,7 +226,12 @@ fun AppList(
             singleLine = true,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surface,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                cursorColor = MaterialTheme.colorScheme.primary
             )
         )
 
@@ -255,7 +263,11 @@ fun AppItem(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
     ) {
         Row(
             modifier = Modifier
@@ -266,7 +278,12 @@ fun AppItem(
             if (isSelectionMode) {
                 Checkbox(
                     checked = isSelected,
-                    onCheckedChange = { onAppSelected(app.packageName, it) }
+                    onCheckedChange = { onAppSelected(app.packageName, it) },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = MaterialTheme.colorScheme.primary,
+                        uncheckedColor = MaterialTheme.colorScheme.outline,
+                        checkmarkColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 )
                 Spacer(modifier = Modifier.width(8.dp))
             }
@@ -280,12 +297,14 @@ fun AppItem(
             Column {
                 Text(
                     text = app.name,
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = app.packageName,
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (app.isSystemApp) {
                     Spacer(modifier = Modifier.height(4.dp))
